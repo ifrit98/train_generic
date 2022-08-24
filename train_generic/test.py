@@ -55,38 +55,33 @@ def test_model(input_shape=(784,)):# Build the model
     return model
 
 
+
 def demo():
 
     from train_generic import mnist
 
     FLAGS = {
-
-        'labels': [str(i) for i in range(10)],
-
         'model_cfg': {
+            'model_src_file': 'C:\\Users\\stgeorge\\Desktop\\blackriver_projects\\FRONTROW\\train_generic\\train_generic\\test.py', 
+            'model_fn_name': 'test_model',  #name of callable (for pseudo-metaprogramming)
             'model_fn_args': {'input_shape': (784,)}
         },
 
         'train_cfg': {
-            'epochs': 10, 'num_classes': 10, 'redirect_stdout': False, 'monitor': 'loss'
+            'epochs': 10, 'num_classes': 10, 'redirect_stdout': False, 'monitor': 'loss',
+            'plot_model': True,
+            'labels': [str(i) for i in range(10)],
         },
 
         'data_cfg': {
+            'data_loader_file': 'C:\\Users\\stgeorge\\Desktop\\blackriver_projects\\FRONTROW\\train_generic\\data\\data_loader.py',
+            'data_loader_fn_name': 'mnist',
             'data_loader_args': {
-                'batch_size': 128, 'vectorize': True, 'subsample': False, 'return_val_set': True
+                'batch_size': 128, 'vectorize': True, 'subsample': True, 'take_n': 1000,
+                'return_val_set': True
             },
         }
     }
-
-    model_cfg=FLAGS.get('model_cfg')
-    data_cfg=FLAGS.get('data_cfg')
-    data_fn=mnist
-    labels = FLAGS.get('labels')
-    train_ds, val_ds, test_ds = mnist(**FLAGS.get('data_cfg').get('data_loader_args'))
-    model = test_model()
-    num_classes=10
-    epochs=10
-    redirect_stdout=False
 
 
     from train_generic import train
@@ -97,31 +92,8 @@ def demo():
         data_cfg=FLAGS.get('data_cfg', {}),
         **FLAGS.get('train_cfg', {})
     )
+    print(results)
+
 
     from train_generic import training_run
-    training_run(
-        FLAGS={
-
-
-            'model_cfg': {
-                'model_src_file': 'C:\\Users\\stgeorge\\Desktop\\blackriver_projects\\FRONTROW\\train_generic\\train_generic\\test.py', 
-                'model_fn_name': 'test_model',  #name of callable (for pseudo-metaprogramming)
-                'model_fn_args': {'input_shape': (784,)}
-            },
-
-            'train_cfg': {
-                'epochs': 10, 'num_classes': 10, 'redirect_stdout': False, 'monitor': 'loss',
-                'plot_model': True,
-                'labels': [str(i) for i in range(10)],
-            },
-
-            'data_cfg': {
-                'data_loader_file': 'C:\\Users\\stgeorge\\Desktop\\blackriver_projects\\FRONTROW\\train_generic\\data\\data_loader.py',
-                'data_loader_fn_name': 'mnist',
-                'data_loader_args': {
-                    'batch_size': 128, 'vectorize': True, 'subsample': True, 'take_n': 1000,
-                    'return_val_set': True
-                },
-            }
-        }
-    )
+    training_run(FLAGS=FLAGS)
