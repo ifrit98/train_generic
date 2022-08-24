@@ -1,0 +1,89 @@
+
+## Docker
+use_docker: False
+data_mount_point: '/training/data' # '/array1/data/front_row_data' 
+dataframes_dir: 'frontrow_dataframes'
+runs_dir: 'C:\Users\stgeorge\runs'
+
+gpu_slots: 'based'
+gpu_max_memory:  # default is None
+
+## Training parameters
+train_cfg: {
+  epochs: 3,
+  steps_per_epoch: , # train on entire dataset if blank (None)
+  verbose: True, 
+  redirect_stdout: False,
+
+  # Callbacks
+  profile_batch: '10, 15', # 0 == do not profile 
+  histogram_freq: 0,
+  stopping_patience: 5,
+  lr_patience: 3,
+  lr_factor: 0.5,
+  monitor: 'val_loss'
+
+}
+
+# Model configuration dict
+model_cfg: {
+  #absolute path
+  model_src_file: 'C:\Users\stgeorge\Desktop\blackriver_projects\FRONTROW\train_generic\models\antirectifier.py', 
+  model_fn_name: 'antirectifier_tiny',  #name of callable (for pseudo-metaprogramming)
+  model_fn_args: {input_shape: [784,], num_classes: 10},
+
+  metrics: ['accuracy'],
+  plot_model: True,
+  checkpoint_path: 'model_ckpt/cp.ckpt', #relpath 
+  history_path: 'history/model_history', #relpath
+  saved_model_path: 'trained_model',     #relpath
+  model_str: 'model', 
+
+  # Optimizer
+  optimizer: 'adam',
+  lr: 1.e-3,
+  init_learning_rate: 0.001, #   (from lr_range_test)
+  min_learning_rate: 1.e-6,   # (from lr_range_test)
+
+  # Loss function
+  loss_fn: 'binary_crossentropy',  #'categorical_crossentropy' 
+
+
+}
+
+## Dataset construction
+data_cfg: {
+  data_loader_file: 'C:\Users\stgeorge\Desktop\blackriver_projects\FRONTROW\train_generic\data\data_loader.py',
+  data_loader_fn_name: 'mnist',
+  data_loader_args: {subsample: True, take_n: 1500, batch_size: 16, vectorize: True},
+  batch_size: 16,
+  num_parallel_calls: 1, # must be <= cycle_length for dataset_signal_slice_windows()
+  shuffle_buffer_size: 1000,
+  n_prefetch: 1,
+  num_classes: 3,
+  2D_input: True, # expand dims at end of dataset construction (after `dataset_compact()`)
+  use_int_targets: True,
+  labels: ['deep_approaching', 'shallow_approaching', 'shallow_random'],
+
+  deterministic: True,
+
+  # Precomputed norm if you have a normalization layer (good to precompute)
+  precomputed_mean: 0, #-0.40882671710280066 # -0.4088567603904982 # train_val_test_split_randomized_OG
+  precomputed_var: 1,  #0.04310465314122027   # 0.04325763232018367
+
+  # dataset_onehot()
+  target_key: 'target', # if using categorical data
+
+  # dataset_compact()
+  compact_x_key: 'spec_features',
+  compact_y_key: 'target',
+  # dataset_signal_slice_windows()
+  win_len: 15000,
+
+  # dataset_signal_normalize_gain()
+  norm_type: 'mean', # remove dc component from amplitude data
+
+  # dataset_signal_downsample()
+  du: 640,
+  su: 50
+}

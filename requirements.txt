@@ -1,0 +1,15 @@
+numpy>=1.19.3
+matplotlib
+pandas
+protobuf>=3.9.2
+pyyaml
+pynvml
+scipy 
+seaborn
+scikit-learn
+soundfile
+tensorflow>=2.5.0
+tensorflow_probability>=0.13.0
+tensorflow_addons
+tqdm
+ulid
