@@ -255,6 +255,7 @@ def gen_roc_phase1_like(y_test,
     return fpr, tpr, roc_auc
 
 
+from warnings import warn
 def evaluate_model(model, test_ds, labels, num_classes, model_str='model'):
 
     if isinstance(test_ds, list):
@@ -287,27 +288,48 @@ def evaluate_model(model, test_ds, labels, num_classes, model_str='model'):
 
 
     # Cluster predictions
-    x_test = np.concatenate(x_test, 0)
+    x_test = np.squeeze(np.concatenate(x_test, 0))
+    if len(x_test.shape) > 2:
+        x_test = np.reshape(x_test, [-1, x_test.shape[-1]])
 
-    plt.clf(); plt.cla();
-    tsne_pred_transform = tsne(
-        x_test, np.argmax(y_pred, 1), outpath='tsne_pred.png'
-    ); plt.clf(); plt.cla()
-    _ = tsne(x_test, y_true, outpath='tsne_true.png'); plt.clf(); plt.cla()
+    if len(y_true.shape) > 2:
+        y_true = np.reshape(y_true, [-1, y_true.shape[-1]])
 
-    pca_pred_transform = pca(
-        x_test, np.argmax(y_pred, 1), outpath='pca_pred.png'
-    ); plt.clf(); plt.cla()
-    _  = pca(x_test, y_true, outpath='pca_true.png'); plt.clf(); plt.cla()
+    if len(y_pred.shape) > 2:
+        y_pred = np.reshape(y_pred, [-1, y_pred.shape[-1]])
 
-    pca_then_tsne_pred_transform  = pca_then_tsne(
-        x_test, np.argmax(y_pred, 1), outpath='pca_then_tsne_pred.png'
-    ); plt.clf(); plt.cla()
-    _  = pca_then_tsne(x_test, y_true, outpath='pca_then_tsne_true.png'); plt.clf(); plt.cla()
+
+    y_true_cluster = y_true if len(y_true.shape) < 2 else np.argmax(np.squeeze(y_true), 1)
+
+    try:
+        plt.clf(); plt.cla();
+        tsne_pred_transform = tsne(
+            x_test, np.argmax(y_pred, 1), outpath='tsne_pred.png'
+        ); plt.clf(); plt.cla()
+        _ = tsne(x_test, y_true_cluster, outpath='tsne_true.png'); plt.clf(); plt.cla()
+    except:
+        warn("TSNE clustering error...")
+
+    try:
+        pca_pred_transform = pca(
+            x_test, np.argmax(y_pred, 1), outpath='pca_pred.png'
+        ); plt.clf(); plt.cla()
+        _  = pca(x_test, y_true_cluster, outpath='pca_true.png'); plt.clf(); plt.cla()
+    except:
+        warn("PCA clustering error...")
+
+    try:
+        pca_then_tsne_pred_transform  = pca_then_tsne(
+            x_test, np.argmax(y_pred, 1), outpath='pca_then_tsne_pred.png'
+        ); plt.clf(); plt.cla()
+        _  = pca_then_tsne(x_test, y_true_cluster, outpath='pca_then_tsne_true.png'); plt.clf(); plt.cla()
+    except:
+        warn("PCA->TSNE cluster error...")
 
     # Generate ROC curves (TODO: Update with lab code that Jon fixed)
-    y_true_roc = tf.one_hot(
+    y_true_roc = np.squeeze(tf.one_hot(
         y_true, num_classes, dtype='int32').numpy() if len(y_true.shape) == 1 else y_true
+    )
     try:
         print("Plotting ROC curve")
         fpr, tpr, roc_auc = generate_roc_curve(
