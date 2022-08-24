@@ -580,6 +580,8 @@ def plot_metrics(history,
         acc = history.history['train_accuracy']
     elif 'sparse_categorical_accuracy' in keys:
         acc = history.history['sparse_categorical_accuracy']
+    elif 'categorical_accuracy' in keys:
+        acc = history.history['catgegorical_accuracy']
     else:
         raise ValueError("Training accuracy not found")
 

@@ -77,9 +77,7 @@ def get_run_dir():
     return _globals['run_dir']['path'] if is_run_active() else os.getcwd()
 
 
-def do_training_run(run_dir,
-                    meta_file = 'metadata.json',
-                    logfile='stdout.log'):
+def do_training_run(run_dir, meta_file='metadata.json'):
     """
     Perform the training run with current run_dir. Sets cwd to run_dir, and then 
     executes training.  Logs created by redirecting stdout to `logfile`.
@@ -90,7 +88,6 @@ def do_training_run(run_dir,
         run_dir: String path to current run directory.
         meta_file: json filepath to metadata output file for dumping `globals`. 
           Defaults to `metadata.json`
-        logfile: String filepath to desired logfile. Defaults to stdout.log
     
     Returns:
         None

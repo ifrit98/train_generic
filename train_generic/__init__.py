@@ -2,11 +2,15 @@ from ._startup import *
 
 set_based_gpu()
 
-FLAGS = import_flags('./flags.yaml')
+try:
+    FLAGS = import_flags('./flags.yaml')
+except:
+    from warnings import warn
+    warn("Could not load `flags.yaml`...")
 
 from .eval import evaluate_model
 
-from .train_wrapper import train
+from .train_wrapper import train, train_lite
 
 from .set_gpu import set_based_gpu
 
