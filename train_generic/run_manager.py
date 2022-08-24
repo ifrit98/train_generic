@@ -48,7 +48,8 @@ _globals = {
     'run_dir': {
         'path': None,
         'FLAGS': GLOBAL_FLAGS if GLOBAL_FLAGS != {} else None
-    }
+    },
+    'eval_metrics': None
 }
 
 HISTORY = None
@@ -119,21 +120,23 @@ def do_training_run(run_dir,
     # Get data loader by fn name
     data_cfg = FLAGS.get('data_cfg', {})
     if data_cfg == {}: raise NotFoundErr("Must provide `data_cfg` dict.")
+
     data_fp = data_cfg.get('data_loader_file', None)
     data_fn = data_cfg.get('data_loader_fn_name', None)
+
     if data_fn is None: raise NotFoundErr("Must provide `data_loader_fn_name` str.")
     data_module = import_file(data_fp)
     data_fn = data_module.__dict__.get(data_fn)
 
     train_cfg = FLAGS.get('train_cfg', {})
     if train_cfg == {}: raise NotFoundErr("Must provide `train_cfg` dict.")
+
     print("Calling train()... writing to {}".format(_globals['run_dir']['path']))
-    history, eval_metrics = train(
+    history, _ = train(
         model_fn=model_fn,
-        model_cfg=model_cfg.get('model_fn_args', {}),
+        model_cfg=model_cfg,
         data_fn=data_fn,
         data_cfg=data_cfg,
-        labels=data_cfg.get('labels', None),
         **train_cfg,
     )
 

@@ -12,8 +12,8 @@ from .utils import plot_metrics
 
 
 
-def train(model_fn, model_cfg, data_fn, data_cfg, 
-          plot_model=True, redirect_stdout=True,
+def train(model_fn, model_cfg, data_fn, data_cfg, num_classes, 
+          plot_model=True, redirect_stdout=True, model_str='model',
           epochs=25, steps_per_epoch=None, saved_model_path='saved_model',
           checkpoint_path='model_ckpt/cp.ckpt', monitor='val_loss',
           hist_path='history/model_history', labels=None,
@@ -42,7 +42,7 @@ def train(model_fn, model_cfg, data_fn, data_cfg,
     start = time.time()
 
     # Instantiate model
-    model = model_fn(**model_cfg)
+    model = model_fn(**model_cfg.get('model_fn_args', {}))
 
     if plot_model:
         tf.keras.utils.plot_model(model, show_shapes=True)
@@ -130,7 +130,12 @@ def train(model_fn, model_cfg, data_fn, data_cfg,
     plot_metrics(history)
 
     print("Evaluating model...")
-    metadata = evaluate_model(model, test_ds, labels)
+    metadata = evaluate_model(
+        model, 
+        test_ds=test_ds, 
+        labels=labels, 
+        num_classes=num_classes, 
+        model_str=model_str)
     return history, metadata
 
 

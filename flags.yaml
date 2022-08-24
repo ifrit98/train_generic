@@ -21,8 +21,12 @@ train_cfg: {
   stopping_patience: 5,
   lr_patience: 3,
   lr_factor: 0.5,
-  monitor: 'val_loss'
+  monitor: 'val_loss',
+  plot_model: True,
 
+  # Labels (passed to `train()`)
+  labels: ['deep_approaching', 'shallow_approaching', 'shallow_random'],
+  num_classes: 3,
 }
 
 # Model configuration dict
@@ -33,7 +37,6 @@ model_cfg: {
   model_fn_args: {input_shape: [784,], num_classes: 10},
 
   metrics: ['accuracy'],
-  plot_model: True,
   checkpoint_path: 'model_ckpt/cp.ckpt', #relpath 
   history_path: 'history/model_history', #relpath
   saved_model_path: 'trained_model',     #relpath
@@ -63,7 +66,6 @@ data_cfg: {
   num_classes: 3,
   2D_input: True, # expand dims at end of dataset construction (after `dataset_compact()`)
   use_int_targets: True,
-  labels: ['deep_approaching', 'shallow_approaching', 'shallow_random'],
 
   deterministic: True,
 

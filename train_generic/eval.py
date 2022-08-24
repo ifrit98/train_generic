@@ -5,7 +5,7 @@ import numpy as np
 import seaborn as sns
 import tensorflow as tf
 import matplotlib.pyplot as plt
-import matplotlib.font_manager
+
 
 # TODO: import this from style file in frontrow project toplevel
 # that way we don't violate DRY
@@ -25,11 +25,11 @@ plt.rcParams["image.cmap"] = 'jet'
 
 from sklearn.metrics import roc_curve, RocCurveDisplay, auc
 from sklearn.metrics import confusion_matrix, classification_report
-from sklearn.metrics import multilabel_confusion_matrix
 
 from itertools import cycle
 from scipy import interp
 
+from .cluster import pca, tsne, pca_then_tsne
 from .utils import is_tensor
 
 # Hex values
@@ -90,6 +90,7 @@ def convert_multilabel_to_categorical(y_pred):
 
 
 def print_confusion_matrix(confusion_matrix, class_names, figsize = (10,7), fontsize=14):
+    import pandas as pd
     """Prints a confusion matrix, as returned by sklearn.metrics.confusion_matrix, as a heatmap.
     
     Note that due to returning the created figure object, when this funciton is called in a
@@ -254,7 +255,7 @@ def gen_roc_phase1_like(y_test,
     return fpr, tpr, roc_auc
 
 
-def evaluate_model(model, test_ds, labels, model_str='model'):
+def evaluate_model(model, test_ds, labels, num_classes, model_str='model'):
 
     if isinstance(test_ds, list):
         batch_size = int(list(divisors(test_ds[0].shape[0]))[1])
@@ -266,10 +267,12 @@ def evaluate_model(model, test_ds, labels, model_str='model'):
             test_ds[1], [-1, batch_size] + list(test_ds[1].shape[1:]))
         test_ds = zip(test_ds[0], test_ds[1])
 
+    # Made predictions with model
     variance, trues, preds = [], [], []
-
+    x_test = []
     start = time.time()
     for i, x in enumerate(test_ds):
+        x_test.append(x[0])
         if i % 10 == 0:
             print("Predicting test batch {}".format(i))
         y_pred = model.predict(x[0])
@@ -282,24 +285,46 @@ def evaluate_model(model, test_ds, labels, model_str='model'):
     y_pred = tf.squeeze(tf.concat(preds, 0))
     y_true = tf.concat(trues, 0)
 
-    # CLUSTER PREDICTIONS
-    from mlcurves.cluster import tsne, pca
-    x_test = np.asarray(list(test_ds.as_numpy_iterator()))
 
-    tsne_pred_transform = tsne(x_test, y_pred, outpath='tsne_pred.png')
-    _ = tsne(x_test, y_true, outpath='tsne_true.png')
+    # Cluster predictions
+    x_test = np.concatenate(x_test, 0)
 
-    pca_pred_transform  = pca(x_test, y_pred, outpath='pca_pred.png')
-    _  = pca(x_test, y_true, outpath='pca_true.png')
+    plt.clf(); plt.cla();
+    tsne_pred_transform = tsne(
+        x_test, np.argmax(y_pred, 1), outpath='tsne_pred.png'
+    ); plt.clf(); plt.cla()
+    _ = tsne(x_test, y_true, outpath='tsne_true.png'); plt.clf(); plt.cla()
 
-    if len(y_true.shape) > 1: # only if we have onehot labels!
-        try:
-            print("Plotting ROC curve")
-            fpr, tpr, roc_auc = generate_roc_curve(
-                y_true, y_pred, labels, model_str
-            )
-        except ValueError as e:
-            print("failure in generating ROC curves... {}".format(e))
+    pca_pred_transform = pca(
+        x_test, np.argmax(y_pred, 1), outpath='pca_pred.png'
+    ); plt.clf(); plt.cla()
+    _  = pca(x_test, y_true, outpath='pca_true.png'); plt.clf(); plt.cla()
+
+    pca_then_tsne_pred_transform  = pca_then_tsne(
+        x_test, np.argmax(y_pred, 1), outpath='pca_then_tsne_pred.png'
+    ); plt.clf(); plt.cla()
+    _  = pca_then_tsne(x_test, y_true, outpath='pca_then_tsne_true.png'); plt.clf(); plt.cla()
+
+    # Generate ROC curves (TODO: Update with lab code that Jon fixed)
+    y_true_roc = tf.one_hot(
+        y_true, num_classes, dtype='int32').numpy() if len(y_true.shape) == 1 else y_true
+    try:
+        print("Plotting ROC curve")
+        fpr, tpr, roc_auc = generate_roc_curve(
+            y_true_roc, 
+            y_pred, labels, model_str
+        )
+    except ValueError as e:
+        print("failure in generating ROC curves... {}".format(e))
+
+    # Plot ROC like phase 1 (clean version)
+    try:
+        print("Plotting phase1-like ROC curve...")
+        gen_roc_phase1_like(y_true_roc, y_pred, labels, model_str)
+    except ValueError as e:
+        print("...Failed {}".format(e))
+        pass
+
 
     labels_dict = dict(zip(list(range(len(labels))), labels))
     labels = np.asarray(list(labels_dict.values())) if labels is None else labels
@@ -316,9 +341,11 @@ def evaluate_model(model, test_ds, labels, model_str='model'):
     if is_tensor(y_pred):
         y_pred = y_pred.numpy()
 
-    # Classification report (F1 score) and Confusion Matrix
+    # Generate Classification report (F1 score) and Confusion Matrix
     pred = np.asarray(list(map(lambda x: np.argmax(x), y_pred)))
-    true = np.asarray(list(map(lambda x: np.argmax(x), y_true)))
+    true = np.asarray(list(map(lambda x: np.argmax(x), y_true))) \
+        if len(y_true.shape) > 1 else y_true 
+    
     true = decode_labels(true, labels_dict)
     pred = decode_labels(pred, labels_dict)
     mat = confusion_matrix(true, pred)
@@ -326,7 +353,7 @@ def evaluate_model(model, test_ds, labels, model_str='model'):
     print(report)
     print(mat)
 
-    # Heatmap
+    # Generate Heatmap
     plt.clf(); plt.cla();
     heatmap = sns.heatmap(mat/np.sum(mat), annot=True, fmt='.2%', cmap='Blues')
     list(map(lambda x: x[0].set_text(x[1]), zip(heatmap.yaxis.get_ticklabels(), labels)))
@@ -341,6 +368,7 @@ def evaluate_model(model, test_ds, labels, model_str='model'):
     plt.savefig("confusion_matrix_plot.png")
     print("\nFinished evaulating model.")
 
+    # Save off evaluation results
     eval_metrics = {
         'false_pos_rate': fpr,
         'true_pos_rate': tpr,
@@ -353,19 +381,13 @@ def evaluate_model(model, test_ds, labels, model_str='model'):
         'conf_mat': mat,
         'class_report': report,
         'tsne_pred_transform': tsne_pred_transform,
-        'pca_pred_transform': pca_pred_transform
+        'pca_pred_transform': pca_pred_transform,
+        'pca_then_tsne_pred_transform': pca_then_tsne_pred_transform
     } 
     with open("eval_metrics.pickle", "wb") as f:
         pickle.dump(eval_metrics, f)
     with open("eval_metrics.md", "w") as f:
         f.writelines('\n'.join(list(eval_metrics)))
-
-    try:
-        print("Plotting phase1-like ROC curve...")
-        gen_roc_phase1_like(y_true, y_pred, labels, model_str)
-    except ValueError as e:
-        print("...Failed {}".format(e))
-        pass
 
     return eval_metrics
 

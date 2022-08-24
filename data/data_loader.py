@@ -5,6 +5,7 @@ def permutation(x):
     """Return the indices of random permutation of `x`"""
     return np.random.permutation(len(x) if hasattr(x, '__len__') else int(x))
     
+    
 def mnist(return_type='tensorflow',
           subsample=False,
           take_n=3000,
@@ -13,7 +14,10 @@ def mnist(return_type='tensorflow',
           vectorize=True,
           batch_size=None,
           buffer_size=60000,
-          return_test=True):
+          val_split=0.1,
+          return_val_set=False,
+          return_test=True,
+          DEFAULT_TRAIN_SIZE=60000):
     assert return_type in ['tensorflow', 'numpy']
     import tensorflow as tf
 
@@ -28,26 +32,43 @@ def mnist(return_type='tensorflow',
         )
         normalize_img = lambda img, lbl: (tf.cast(img, tf.float32) / 255., lbl)
 
+        val_take_n = int((take_n if subsample else DEFAULT_TRAIN_SIZE) * val_split)
+        buffer_size = take_n if subsample else buffer_size
+        test_take = int((1-take_split)*buffer_size)+1
+
         # Train
         ds_train = ds_train.map(
             normalize_img, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-        ds_train = ds_train.take(take_n) if subsample else ds_train
-        ds_train = ds_train.cache()
         ds_train = ds_train.shuffle(buffer_size) if shuffle else ds_train
+        ds_train = ds_train.take(take_n) if subsample else ds_train
         ds_train = ds_train.map(vec_func) if vectorize else ds_train
-        ds_train = ds_train.batch(batch_size) if batch_size is not None else ds_train
-        ds_train = ds_train.prefetch(tf.data.experimental.AUTOTUNE)
-
+        
         # Test
         ds_test = ds_test.map(
             normalize_img, num_parallel_calls=tf.data.experimental.AUTOTUNE)
         ds_test = ds_test.map(vec_func) if vectorize else ds_test
-        if subsample:
-            ds_train = ds_train.shuffle(int(take_split*buffer_size))
-            ds_train = ds_train.take(int(take_n*take_split))
-        ds_test = ds_test.batch(batch_size) if batch_size is not None else ds_test
-        ds_test = ds_test.cache()
+        ds_test = ds_test.shuffle(test_take).take(test_take) if subsample else ds_test
         ds_test = ds_test.prefetch(tf.data.experimental.AUTOTUNE)
+
+        if return_val_set:
+            ds_val   = ds_train.take(val_take_n).cache()
+            ds_train = ds_train.skip(val_take_n).cache()
+            ds_test  = ds_test.cache()
+
+            ds_train = ds_train.batch(batch_size) if batch_size is not None else ds_train
+            ds_val   = ds_val.batch(batch_size)   if batch_size is not None else ds_val
+            ds_test  = ds_test.batch(batch_size)  if batch_size is not None else ds_test
+
+            ds_train = ds_train.prefetch(tf.data.experimental.AUTOTUNE)
+            ds_val   = ds_val.prefetch(tf.data.experimental.AUTOTUNE)
+            ds_test  = ds_test.prefetch(tf.data.experimental.AUTOTUNE)
+            return ds_train, ds_val, ds_test
+
+        ds_train = ds_train.batch(batch_size) if batch_size is not None else ds_train
+        ds_test  = ds_test.batch(batch_size)  if batch_size is not None else ds_test
+
+        ds_train = ds_train.prefetch(tf.data.experimental.AUTOTUNE)
+        ds_test  = ds_test.prefetch(tf.data.experimental.AUTOTUNE)
 
         return_val = (ds_train, ds_test) if return_test else ds_train
         for x in ds_train: break
@@ -79,6 +100,15 @@ def mnist(return_type='tensorflow',
     x_train = x_train.astype(float) / 255.0
     x_test  = x_test.astype(float) / 255.0
 
+    if return_val_set:
+        perm = permutation(len(x_train))
+        val_take_n = int(len(x_train) * val_split)
+        x_val = x_train[perm[:val_take_n]]
+        y_val = y_train[perm[:val_take_n]]
+        x_train = x_train[perm[val_take_n+1:]]
+        y_train = y_train[perm[val_take_n+1:]]
+        return (x_train, y_train), (x_val, y_val), (x_test, y_test)
+
     return_val = ((x_train, y_train), (x_test, y_test)) \
         if return_test else (x_train, y_train)
 
@@ -89,4 +119,6 @@ def mnist(return_type='tensorflow',
             )
     print(print_string)
     return return_val
+
+
 
