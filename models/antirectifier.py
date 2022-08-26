@@ -1,8 +1,8 @@
 
 import tensorflow as tf
 from tensorflow.keras import Sequential
-from tensorflow.keras.metrics import SparseCategoricalAccuracy
-from tensorflow.keras.optimizers import Adam, RMSprop
+from tensorflow.keras.metrics import SparseCategoricalAccuracy, CategoricalAccuracy
+from tensorflow.keras.optimizers import Adam, RMSprop, SGD
 from tensorflow.keras.layers import Conv1D, Dropout, Flatten, MaxPooling1D, Dense, Flatten
 from tensorflow.keras.layers import Input, BatchNormalization, Dropout, Activation
 from tensorflow.keras.losses import SparseCategoricalCrossentropy, CategoricalCrossentropy
@@ -42,7 +42,13 @@ class Antirectifier(tf.keras.layers.Layer):
     return dict(list(base_config.items()) + list(config.items()))
 
 
-def antirectifier_tiny(input_shape, num_classes=10, dense_units=256, dropout=0.2):
+def antirectifier_tiny(input_shape, 
+                       num_classes=10, 
+                       dense_units=256, 
+                       dropout=0.2, 
+                       optimizer='rmsprop',
+                       from_logits=False):
+  if isinstance(optimizer, str): assert optimizer.lower() in ['rmsprop', 'adam']
   model = Sequential(
       [
           Input(shape=input_shape),
@@ -54,11 +60,18 @@ def antirectifier_tiny(input_shape, num_classes=10, dense_units=256, dropout=0.2
           Dense(num_classes),
       ]
   )
-  model.compile(
-      loss=SparseCategoricalCrossentropy(from_logits=True),
-      optimizer=RMSprop(),
-      metrics=[SparseCategoricalAccuracy()],
-  )
+  if from_logits:
+    model.compile(
+        loss=SparseCategoricalCrossentropy(from_logits=True),
+        optimizer=RMSprop() if optimizer == 'rmsprop' else Adam(),
+        metrics=[SparseCategoricalAccuracy()],
+    )
+  else:
+    model.compile(
+      loss=CategoricalCrossentropy(),
+      optimizer=RMSprop() if optimizer == 'rmsprop' else Adam(),
+      metrics=[CategoricalAccuracy()]
+    )
   return model
 
 
