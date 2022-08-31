@@ -3,7 +3,6 @@ import os
 from mlcurves import learn_rate_range_test
 from mlcurves import complexity_curves_tf
 from mlcurves import train_set_size_curves_tf
-from sympy import dsolve
 
 import tensorflow as tf
 from tensorflow.keras import Sequential
@@ -15,6 +14,21 @@ from tensorflow.keras.losses import SparseCategoricalCrossentropy, CategoricalCr
 
 
 
+class Namespace:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+    def __iter__(self):
+        return iter(self.__dict__.items())
+    def add_to_namespace(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+def env(**kwargs):
+    return Namespace(**kwargs)
+environment = env
+
+
+############################################################################################
+############################################################################################
 
 class Antirectifier(tf.keras.layers.Layer):
   """Build simple custome layer."""
@@ -81,17 +95,118 @@ def antirectifier_tiny(input_shape,
 
 
 
-class Namespace:
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-    def __iter__(self):
-        return iter(self.__dict__.items())
-    def add_to_namespace(self, **kwargs):
-        self.__dict__.update(kwargs)
+############################################################################################
+############################################################################################
 
-def env(**kwargs):
-    return Namespace(**kwargs)
-environment = env
+
+
+add_time = lambda s: s + '_' + timestamp()
+
+
+def ploty(y, x=None, xlab='obs', ylab='value', 
+          save=True, title='', filepath='plot'):
+    sns.set()
+    if x is None: x = np.linspace(0, len(y), len(y))
+    filepath = add_time(filepath)
+    fig, ax = plt.subplots()
+    ax.plot(x, y)
+    ax.set(xlabel=xlab, ylabel=ylab, title=title)
+    ax.grid()
+    best_lr = x[np.argmin(y)]
+    plt.axvline(x=best_lr, color='r', label='Best LR {:.4f}'.format(best_lr))
+    plt.legend()
+    if save:
+       fig.savefig(filepath)
+    plt.show()
+    return filepath
+
+
+def plot_lr_range_test_from_hist(history,
+                                filename="lr_range_test",
+                                max_loss=5,
+                                max_lr=1):
+    loss = np.asarray(history.history['loss'])
+    lr   = np.asarray(history.history['lr'])
+    cut_index = np.argmax(loss > max_loss)
+    if cut_index == 0:
+        print("\nLoss did not exceed `MAX_LOSS`.")
+        print("Increase `epochs` and `MAX_LR`, or decrease `MAX_LOSS`.")
+        print("\nPlotting with full history. May be scaled incorrectly...\n\n")
+    else:
+        loss[cut_index] = max_loss
+        loss = loss[:cut_index]
+        lr = lr[:cut_index]
+    
+    lr_cut_index = np.argmax(lr > max_lr)
+    if lr_cut_index != 0:
+        lr[lr_cut_index] = max_lr
+        lr = lr[:lr_cut_index]
+        loss = loss[:lr_cut_index]
+
+    ploty(
+        loss, lr, 
+        xlab='Learning Rate', ylab='Loss', 
+        filepath=filename
+    )
+
+
+def infer_best_lr_params(history, factor=3): 
+    idx = tf.argmin(history.history['loss'])
+    best_run_lr = history.history['lr'][idx]
+    min_lr = best_run_lr / factor
+    return [min_lr, best_run_lr, idx]
+
+
+# Reference: https://arxiv.org/pdf/1708.07120.pdf%22
+def learn_rate_range_test(model, ds, init_lr=1e-4, factor=3, 
+                          plot=True, steps_per_epoch=None,
+                          max_lr=3, max_loss=2, epochs=25, 
+                          save_hist=True, verbose=1, outpath='lr_range_test'):
+    """
+    Perform a learn rate range test using a single epoch per learn_rate. (paper version)
+    """
+    lr_range_callback = tf.keras.callbacks.LearningRateScheduler(
+        schedule = lambda epoch: init_lr * tf.pow(
+            tf.pow(max_lr / init_lr, 1 / (epochs - 1)), epoch))
+
+    if steps_per_epoch is not None:
+        hist = model.fit(
+            ds,
+            epochs=epochs,
+            steps_per_epoch=int(steps_per_epoch),
+            callbacks=[lr_range_callback],
+            verbose=verbose)
+    else:
+        hist = model.fit(
+            ds,
+            epochs=epochs,
+            callbacks=[lr_range_callback],
+            verbose=verbose)
+
+    if save_hist:
+        from pickle import dump
+        f = open("lr-range-test-history", 'wb')
+        dump(hist.history, f)
+        f.close()
+
+    min_lr, best_lr, best_lr_idx = infer_best_lr_params(hist, factor)
+
+    if plot:
+        plot_lr_range_test_from_hist(
+            hist, 
+            max_lr=max_lr, max_loss=max_loss,
+            filename=outpath
+        )
+
+    return (min_lr, best_lr), hist
+
+
+
+############################################################################################
+############################################################################################
+
+
+
 
 def process_history(results, histories, acc_nm, loss_nm, val_acc_nm, val_loss_nm):
     train_errs, val_errs, test_errs = [], [], []
@@ -134,7 +249,7 @@ def plot_metrics(history,
                  save_png=True,
                  xlab=None, ylab=None,
                  xticks=None, xtick_labels=None,
-                 outpath='training_curves_' + timestamp()):
+                 outpath='training_curves_{}.pdf'.format(timestamp())):
     sns.set()
     plt.clf()
     plt.cla()
@@ -258,8 +373,8 @@ def plot_metrics(history,
 
 import numpy as np
 def train_set_size_curves_tf(model_fn, model_args,
-                             trainset, valset, 
-                             testset, num_classes,
+                             train_ds, val_ds, 
+                             test_ds, num_classes,
                              batch_size=16,
                              epochs=10, n_runs=11, 
                              shuffle_init=True, 
@@ -270,14 +385,14 @@ def train_set_size_curves_tf(model_fn, model_args,
 
     # Try unbatching first
     try:
-        trainset = trainset.unbatch()
-        valset   = valset.unbatch()
-        testset  = testset.unbatch()
+        train_ds = train_ds.unbatch()
+        val_ds   = val_ds.unbatch()
+        test_ds  = test_ds.unbatch()
     except:
         pass
 
     # Get monotonically increasing range based on percentages
-    train_len = len(list(trainset.as_numpy_iterator()))
+    train_len = len(list(train_ds.as_numpy_iterator()))
 
     if not os.path.exists(outpath): os.mkdir(outpath)
 
@@ -285,9 +400,9 @@ def train_set_size_curves_tf(model_fn, model_args,
         buffer_size = train_len
 
     if shuffle_init:
-        trainset = trainset.shuffle(buffer_size)
-        valset = valset.shuffle(buffer_size)
-        testset = testset.shuffle(buffer_size)
+        train_ds = train_ds.shuffle(buffer_size)
+        val_ds = val_ds.shuffle(buffer_size)
+        test_ds = test_ds.shuffle(buffer_size)
 
     u = 1 / n_runs
     rng = np.arange(u, 1+u, u)
@@ -297,7 +412,7 @@ def train_set_size_curves_tf(model_fn, model_args,
     tr_prev = 0
 
     if model_args.get('input_shape') is None or model_args.get('num_classes') is None:
-        for x in trainset: break
+        for x in train_ds: break
         model_args['input_shape'] = x[0].shape
         model_args['num_classes'] = num_classes
         del x
@@ -306,20 +421,20 @@ def train_set_size_curves_tf(model_fn, model_args,
     results = {}
     for i, tr in enumerate(train_sizes):
         print("Starting dataset size: (train) {}", tr)
-        print("Percentage of full trainset {}%".format((tr/train_len)*100))
+        print("Percentage of full train_ds {}%".format((tr/train_len)*100))
 
-        ds_sub = trainset.skip(tr_prev).take(tr).shuffle(buffer_size).batch(batch_size)
+        ds_sub = train_ds.skip(tr_prev).take(tr).shuffle(buffer_size).batch(batch_size)
         tr_prev = tr
 
         model = model_fn(**model_args)
-        history = model.fit(ds_sub, validation_data=valset.batch(batch_size), epochs=epochs)
+        history = model.fit(ds_sub, validation_data=val_ds.batch(batch_size), epochs=epochs)
         histories[i] = history
 
-        res = model.evaluate(testset.batch(batch_size))
+        res = model.evaluate(test_ds.batch(batch_size))
         results[i] = res
         
         plot_metrics(history, show=False, outpath=os.path.join(
-            outpath, 'training_curves_{}'.format(i))
+            outpath, 'training_curves_{}.pdf'.format(i))
         )
 
         del model
@@ -336,10 +451,14 @@ def train_set_size_curves_tf(model_fn, model_args,
     plot_metrics(
         total_history, show=False, xlab="Train Set Size (#)", 
         xticks=range(len(train_sizes)), xtick_labels=train_sizes,
-        outpath=os.path.join(outpath, 'final_train_size_curves.png')
+        outpath=os.path.join(outpath, 'final_train_size_curves.pdf')
     )
     return total_history
 
+
+
+############################################################################################
+############################################################################################
 
 
 
@@ -390,14 +509,14 @@ def complexity_curves_tf(model_fn,
     config_by_name = 'model_nm' in fargs(model_fn)
 
     for i, (nm, cfg) in enumerate(configs.items()):
+
         if config_by_name:
             model = model_fn(
                 input_shape=input_shape, num_classes=num_classes, model_nm=nm
             )
         else:
-            model = model_fn(
-                input_shape=input_shape, num_classes=num_classes, **cfg
-            )
+            cfg.update(dict(input_shape=input_shape, num_classes=num_classes))
+            model = model_fn(**cfg)
 
         h = model.fit(
             train_ds, 
@@ -407,7 +526,7 @@ def complexity_curves_tf(model_fn,
         )
         histories[i] = h
         plot_metrics(h, show=False, outpath=os.path.join(
-            outpath, 'training_curves_{}'.format(i))
+            outpath, 'training_curves_{}.pdf'.format(i))
         )
 
         r = model.evaluate(test_ds)
@@ -416,17 +535,30 @@ def complexity_curves_tf(model_fn,
         model_sizes[i] = get_param_count(model)
 
     model_basename = nm.split("_")[0]
-    total_history = process_history(results, histories)
+    # TODO: Ensure this is a consistently deterministic ordering
+    hist_names = dict(
+        zip(
+            ['loss_nm', 'acc_nm', 'val_loss_nm', 'val_acc_nm'], 
+            list(h.history)
+        )
+    )
+    total_history = process_history(results, histories, **hist_names)
 
     plot_metrics(
         total_history, show=False, xlab="Model complexity (# params)", 
         ylab="Crossentropy Loss",
         xticks=range(len(model_sizes)), xtick_labels=list(model_sizes.values()),
-        outpath=os.path.join(outpath, '{}_complexity_curves.png'.format(model_basename))
+        outpath=os.path.join(outpath, '{}_complexity_curves.pdf'.format(model_basename))
     )
 
     return total_history
 
+
+
+import os
+def mkdir(path):
+    if not os.path.exists(path):
+        os.mkdir(path)
 
 
 import yaml
@@ -437,6 +569,7 @@ def model_paces(model_fn,
                 val_ds,
                 test_ds, 
                 num_size_runs=11,
+                size_curves_epochs=25,
                 init_model_key='baseline',
                 model_cfg='model_cfg.yaml', # can be a python dict()
                 outpath="."):
@@ -450,17 +583,18 @@ def model_paces(model_fn,
 
     (3) Runs a rounine to infer average best model size (measured in # parameters)
 
-    (4) Returns the results as `dict` and saves plots to `outpath/*.png`
+    (4) Returns the results as `dict` and saves plots to `outpath/*.pdf`
     """
+    mkdir(outpath)
 
     if isinstance(model_cfg, str):
         with open(model_cfg, 'rb') as f:
             model_cfg = yaml.load(f)
     
-    model_args = model_cfg.get(init_model_key, {})
-    model_args.update(dict(input_shape=input_shape, num_classes=num_classes))
+    base_model_args = model_cfg.get(init_model_key, {})
+    base_model_args.update(dict(input_shape=input_shape, num_classes=num_classes))
 
-    model = model_fn(**model_args) # model_fn(input_shape, num_classes)
+    model = model_fn(**base_model_args) # model_fn(input_shape, num_classes)
     print(model.summary())
 
     (min_lr, init_lr), h = learn_rate_range_test(
@@ -468,13 +602,14 @@ def model_paces(model_fn,
     )
 
     train_size_history = train_set_size_curves_tf(
-        model_fn, model_args, train_ds, val_ds, test_ds, 
-        num_classes=num_classes, epochs=25, n_runs=num_size_runs,
+        model_fn, base_model_args, train_ds, val_ds, test_ds, 
+        num_classes=num_classes, epochs=size_curves_epochs, n_runs=num_size_runs,
         outpath=os.path.join(outpath, "train_size_test")
     )
 
     complexity_history = complexity_curves_tf(
-        model_fn, configs=model_cfg, train_ds=train_ds, val_ds=val_ds, test_ds=test_ds,
+        model_fn, input_shape=input_shape, num_classes=num_classes,
+        configs=model_cfg, train_ds=train_ds, val_ds=val_ds, test_ds=test_ds,
         outpath=os.path.join(outpath, "complexity_test")
     )
 
@@ -489,69 +624,199 @@ def model_paces(model_fn,
 
 
 
-def paces_demo(outpath='./out', n_val=2000):
-    import os
-    from mlcurves.curve_utils import mnist
 
-    ds, ts = mnist(shuffle=True, vectorize=True, expand_dims=False, batch_size=16)
-    vs = ts.take(n_val)
-    ts = ts.skip(n_val)
+def permutation(x):
+    """Return the indices of random permutation of `x`"""
+    return np.random.permutation(len(x) if hasattr(x, '__len__') else int(x))
+    
 
-    for x in ds: break
-    input_shape = x[0].shape[1:]
-    num_classes = 10
-    print("input shape:", input_shape)
+def mnist(return_type='tensorflow',
+          subsample=False,
+          take_n=3000,
+          take_split=0.8,
+          shuffle=True,
+          vectorize=True,
+          batch_size=None,
+          buffer_size=60000,
+          val_split=0.1,
+          return_val_set=False,
+          return_test=True,
+          expand_last_dim=False,
+          one_hot_labels=False,
+          drop_remainder=True,
+          DEFAULT_TRAIN_SIZE=60000):
+    assert return_type in ['tensorflow', 'numpy']
+    import tensorflow as tf
 
-    from mlcurves.models.antirectifier import build_antirectifier_dense, dense_configs
-    from mlcurves import model_paces
+    (x_train, y_train), (x_test , y_test) = tf.keras.datasets.mnist.load_data()
 
-    paces = model_paces(
-        build_antirectifier_dense, 
-        input_shape,
-        num_classes=num_classes,
-        train_ds=ds, test_ds=ts, val_ds=vs,
-        model_cfg=dense_configs,
-        outpath=os.path.join(outpath, "model_paces")
+    if return_type=='tensorflow':
+        ds_train = tf.data.Dataset.from_tensor_slices((x_train, y_train))
+        ds_test  = tf.data.Dataset.from_tensor_slices((x_test, y_test))
+
+        vec_func = lambda x,y: (
+            tf.reshape(x, [x.shape[0]*x.shape[1]]), y 
+        )
+        normalize_img = lambda img, lbl: (tf.cast(img, tf.float32) / 255., lbl)
+
+        val_take_n = int((take_n if subsample else DEFAULT_TRAIN_SIZE) * val_split)
+        buffer_size = take_n if subsample else buffer_size
+        test_take = int((1-take_split)*buffer_size)+1
+
+        # Train
+        ds_train = ds_train.map(
+            normalize_img, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        ds_train = ds_train.shuffle(buffer_size) if shuffle else ds_train
+        ds_train = ds_train.take(take_n) if subsample else ds_train
+        ds_train = ds_train.map(vec_func) if vectorize else ds_train
+        
+        # Test
+        ds_test = ds_test.map(
+            normalize_img, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        ds_test = ds_test.map(vec_func) if vectorize else ds_test
+        ds_test = ds_test.shuffle(test_take).take(test_take) if subsample else ds_test
+        ds_test = ds_test.prefetch(tf.data.experimental.AUTOTUNE)
+
+        if expand_last_dim:
+            ds_train = ds_train.map(lambda img,lbl: (tf.expand_dims(img, -1), lbl))
+            ds_test  = ds_test.map( lambda img,lbl: (tf.expand_dims(img, -1), lbl))
+
+        if one_hot_labels:
+            ds_train = ds_train.map(lambda img,lbl: (img, tf.one_hot(lbl, 10, dtype='int32')))
+            ds_test  = ds_test.map( lambda img,lbl: (img, tf.one_hot(lbl, 10, dtype='int32')))
+
+        if return_val_set:
+            ds_val   = ds_train.take(val_take_n).cache()
+            ds_train = ds_train.skip(val_take_n).cache()
+            ds_test  = ds_test.cache()
+
+            ds_train = ds_train.batch(
+                batch_size, drop_remainder=drop_remainder) if batch_size is not None else ds_train
+            ds_val   = ds_val.batch(
+                batch_size, drop_remainder=drop_remainder) if batch_size is not None else ds_val
+            ds_test  = ds_test.batch(
+                batch_size, drop_remainder=drop_remainder) if batch_size is not None else ds_test
+
+            ds_train = ds_train.prefetch(tf.data.experimental.AUTOTUNE)
+            ds_val   = ds_val.prefetch(tf.data.experimental.AUTOTUNE)
+            ds_test  = ds_test.prefetch(tf.data.experimental.AUTOTUNE)
+            return ds_train, ds_val, ds_test
+
+        ds_train = ds_train.batch(
+            batch_size, drop_remainder=drop_remainder) if batch_size is not None else ds_train
+        ds_test  = ds_test.batch(
+            batch_size, drop_remainder=drop_remainder) if batch_size is not None else ds_test
+
+        ds_train = ds_train.prefetch(tf.data.experimental.AUTOTUNE)
+        ds_test  = ds_test.prefetch(tf.data.experimental.AUTOTUNE)
+
+        return_val = (ds_train, ds_test) if return_test else ds_train
+        for x in ds_train: break
+        print("Loading Tesnorflow dataset with shape: {}".format(x[0].shape))
+        return return_val
+
+    if shuffle:
+        train_idx = permutation(len(x_train))
+        test_idx  = permutation(len(x_test))
+
+        x_train = x_train[train_idx]
+        y_train = y_train[train_idx]
+        x_test  = x_test[test_idx]
+        y_test  = y_test[test_idx]
+
+    if subsample:
+        x_train = x_train[:take_n]
+        y_train = y_train[:int(take_n*take_split)]
+
+    if vectorize:
+        x_train = np.reshape(
+            x_train, [x_train.shape[0], x_train.shape[1]*x_train.shape[2]]
+        )
+        x_test  = np.reshape(
+            x_test, [x_test.shape[0], x_test.shape[1]*x_test.shape[2]]
+        )
+
+    # Normalize images
+    x_train = x_train.astype(float) / 255.0
+    x_test  = x_test.astype(float) / 255.0
+
+    if expand_last_dim:
+        x_train = np.expand_dims(x_train, -1)
+        x_test  = np.expand_dims(x_test, -1)
+
+    if one_hot_labels:
+        y_train = tf.one_hot(y_train, 10).numpy().astype(int)
+        y_test  = tf.one_hot(y_test, 10).numpy().astype(int)
+
+    if return_val_set:
+        perm = permutation(len(x_train))
+        val_take_n = int(len(x_train) * val_split)
+        x_val = x_train[perm[:val_take_n]]
+        y_val = y_train[perm[:val_take_n]]
+        x_train = x_train[perm[val_take_n+1:]]
+        y_train = y_train[perm[val_take_n+1:]]
+        return (x_train, y_train), (x_val, y_val), (x_test, y_test)
+
+    return_val = ((x_train, y_train), (x_test, y_test)) \
+        if return_test else (x_train, y_train)
+
+    print_string = "Loading numpy MNIST with shape:\ntrain: {}\ntest:  {}".format(
+        x_train.shape, x_test.shape) \
+            if return_test else "Loading numpy MNIST with shape:\ntrain: {}".format(
+                x_train.shape
+            )
+    print(print_string)
+    return return_val
+
+
+
+def paces_demo():
+
+    train_ds, val_ds, test_ds = mnist(
+        expand_last_dim=False, subsample=True, batch_size=16, 
+        one_hot_labels=False,
+        return_val_set=True,
+        drop_remainder=True
     )
-    print("model paces results: {}".format(paces))
 
+    model_fn=antirectifier_tiny
+    input_shape=(784,)
+    num_classes=10
+    init_model_key='small'
+    num_size_runs=11
+    size_curves_epochs=25
+    outpath='./plots'
 
+    configs = model_cfg = dict(
+        tiny=dict(),
+        small=dict(
+            dense_units=128,
+            dropout=0.1,
+            from_logits=True
+        ),
+        baseline=dict(
+            dense_units=256,
+            dropout=0.25,
+            from_logits=True
+        ),
+        large=dict(
+            dense_units=512,
+            dropout=0.5,
+            from_logits=True
+        ),
+        xlarge=dict()
+    )
 
-from train_generic import mnist
-
-train_ds, val_ds, test_ds = mnist(
-    expand_last_dim=False, subsample=True, batch_size=16, 
-    one_hot_labels=False,
-    return_val_set=True,
-    drop_remainder=True
-)
-trainset=train_ds
-valset=val_ds
-testset=test_ds
-
-model_fn=antirectifier_tiny
-input_shape=(784,)
-num_classes=10
-init_model_key='small'
-epochs=10
-n_runs=3
-shuffle_init=True
-outpath='./'
-
-model_cfg = dict(
-    small=dict(
-        dense_units=128,
-        dropout=0.1,
-        from_logits=True
-    ),
-    baseline=dict(
-        dense_units=256,
-        dropout=0.25,
-        from_logits=False
-    ),
-    large=dict(
-        dense_units=512,
-        dropout=0.5,
-        from_logits=False
-    ),
-)
+    model_paces(
+        model_fn,
+        input_shape=input_shape,
+        num_classes=num_classes,
+        train_ds=train_ds,
+        val_ds=val_ds,
+        test_ds=test_ds,
+        num_size_runs=num_size_runs,
+        size_curves_epochs=size_curves_epochs,
+        model_cfg=model_cfg,
+        init_model_key=init_model_key,
+        outpath=outpath
+    )

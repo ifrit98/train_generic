@@ -1,3 +1,4 @@
+
 import numpy as np
 
 
@@ -5,7 +6,7 @@ def permutation(x):
     """Return the indices of random permutation of `x`"""
     return np.random.permutation(len(x) if hasattr(x, '__len__') else int(x))
     
-    
+
 def mnist(return_type='tensorflow',
           subsample=False,
           take_n=3000,
@@ -17,6 +18,9 @@ def mnist(return_type='tensorflow',
           val_split=0.1,
           return_val_set=False,
           return_test=True,
+          expand_last_dim=False,
+          one_hot_labels=False,
+          drop_remainder=True,
           DEFAULT_TRAIN_SIZE=60000):
     assert return_type in ['tensorflow', 'numpy']
     import tensorflow as tf
@@ -50,22 +54,35 @@ def mnist(return_type='tensorflow',
         ds_test = ds_test.shuffle(test_take).take(test_take) if subsample else ds_test
         ds_test = ds_test.prefetch(tf.data.experimental.AUTOTUNE)
 
+        if expand_last_dim:
+            ds_train = ds_train.map(lambda img,lbl: (tf.expand_dims(img, -1), lbl))
+            ds_test  = ds_test.map( lambda img,lbl: (tf.expand_dims(img, -1), lbl))
+
+        if one_hot_labels:
+            ds_train = ds_train.map(lambda img,lbl: (img, tf.one_hot(lbl, 10, dtype='int32')))
+            ds_test  = ds_test.map( lambda img,lbl: (img, tf.one_hot(lbl, 10, dtype='int32')))
+
         if return_val_set:
             ds_val   = ds_train.take(val_take_n).cache()
             ds_train = ds_train.skip(val_take_n).cache()
             ds_test  = ds_test.cache()
 
-            ds_train = ds_train.batch(batch_size) if batch_size is not None else ds_train
-            ds_val   = ds_val.batch(batch_size)   if batch_size is not None else ds_val
-            ds_test  = ds_test.batch(batch_size)  if batch_size is not None else ds_test
+            ds_train = ds_train.batch(
+                batch_size, drop_remainder=drop_remainder) if batch_size is not None else ds_train
+            ds_val   = ds_val.batch(
+                batch_size, drop_remainder=drop_remainder) if batch_size is not None else ds_val
+            ds_test  = ds_test.batch(
+                batch_size, drop_remainder=drop_remainder) if batch_size is not None else ds_test
 
             ds_train = ds_train.prefetch(tf.data.experimental.AUTOTUNE)
             ds_val   = ds_val.prefetch(tf.data.experimental.AUTOTUNE)
             ds_test  = ds_test.prefetch(tf.data.experimental.AUTOTUNE)
             return ds_train, ds_val, ds_test
 
-        ds_train = ds_train.batch(batch_size) if batch_size is not None else ds_train
-        ds_test  = ds_test.batch(batch_size)  if batch_size is not None else ds_test
+        ds_train = ds_train.batch(
+            batch_size, drop_remainder=drop_remainder) if batch_size is not None else ds_train
+        ds_test  = ds_test.batch(
+            batch_size, drop_remainder=drop_remainder) if batch_size is not None else ds_test
 
         ds_train = ds_train.prefetch(tf.data.experimental.AUTOTUNE)
         ds_test  = ds_test.prefetch(tf.data.experimental.AUTOTUNE)
@@ -100,6 +117,14 @@ def mnist(return_type='tensorflow',
     x_train = x_train.astype(float) / 255.0
     x_test  = x_test.astype(float) / 255.0
 
+    if expand_last_dim:
+        x_train = np.expand_dims(x_train, -1)
+        x_test  = np.expand_dims(x_test, -1)
+
+    if one_hot_labels:
+        y_train = tf.one_hot(y_train, 10).numpy().astype(int)
+        y_test  = tf.one_hot(y_test, 10).numpy().astype(int)
+
     if return_val_set:
         perm = permutation(len(x_train))
         val_take_n = int(len(x_train) * val_split)
@@ -119,6 +144,3 @@ def mnist(return_type='tensorflow',
             )
     print(print_string)
     return return_val
-
-
-

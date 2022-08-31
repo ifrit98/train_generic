@@ -258,6 +258,8 @@ def gen_roc_phase1_like(y_test,
 from warnings import warn
 def evaluate_model(model, test_ds, labels, num_classes, model_str='model'):
 
+    labels = labels or list(range(num_classes)) # if labels=None
+
     if isinstance(test_ds, list):
         batch_size = int(list(divisors(test_ds[0].shape[0]))[1])
         if batch_size > test_ds[0].shape[0] // 4:
@@ -308,6 +310,7 @@ def evaluate_model(model, test_ds, labels, num_classes, model_str='model'):
         ); plt.clf(); plt.cla()
         _ = tsne(x_test, y_true_cluster, outpath='tsne_true.png'); plt.clf(); plt.cla()
     except:
+        tsne_pred_transform = None
         warn("TSNE clustering error...")
 
     try:
@@ -316,6 +319,7 @@ def evaluate_model(model, test_ds, labels, num_classes, model_str='model'):
         ); plt.clf(); plt.cla()
         _  = pca(x_test, y_true_cluster, outpath='pca_true.png'); plt.clf(); plt.cla()
     except:
+        pca_pred_transform = None
         warn("PCA clustering error...")
 
     try:
@@ -324,6 +328,7 @@ def evaluate_model(model, test_ds, labels, num_classes, model_str='model'):
         ); plt.clf(); plt.cla()
         _  = pca_then_tsne(x_test, y_true_cluster, outpath='pca_then_tsne_true.png'); plt.clf(); plt.cla()
     except:
+        pca_then_tsne_pred_transform = None
         warn("PCA->TSNE cluster error...")
 
     # Generate ROC curves (TODO: Update with lab code that Jon fixed)
@@ -337,6 +342,7 @@ def evaluate_model(model, test_ds, labels, num_classes, model_str='model'):
             y_pred, labels, model_str
         )
     except ValueError as e:
+        fpr, tpr, roc_auc = [None] * 3
         print("failure in generating ROC curves... {}".format(e))
 
     # Plot ROC like phase 1 (clean version)

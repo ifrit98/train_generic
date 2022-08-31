@@ -3,16 +3,16 @@ import seaborn as sns
 from warnings import warn
 import time
 
-
 timestamp = lambda: time.strftime("%m_%d_%y_%H-%M-%S", time.strptime(time.asctime()))
 
-# Plotting routine for history objects
+
+
 def plot_metrics(history,
                  show=False,
                  save_png=True,
                  xlab=None, ylab=None,
                  xticks=None, xtick_labels=None,
-                 outpath='training_curves_' + timestamp()):
+                 outpath='training_curves_{}.pdf'.format(timestamp())):
     sns.set()
     plt.clf()
     plt.cla()
@@ -20,17 +20,21 @@ def plot_metrics(history,
     keys = list(history.history)
     epochs = range(
         min(list(map(lambda x: len(x[1]), history.history.items())))
-    )  
+    ) 
 
     ax = plt.subplot(211)
     if 'acc' in keys:
-        acc  = history.history['acc']
+        acc = history.history['acc']
     elif 'accuracy' in keys:
-        acc  = history.history['accuracy']
+        acc = history.history['accuracy']
     elif 'train_acc' in keys:
-        acc  = history.history['train_acc']
+        acc = history.history['train_acc']
     elif 'train_accuracy' in keys:
-        acc  = history.history['train_accuracy']
+        acc = history.history['train_accuracy']
+    elif 'sparse_categorical_accuracy' in keys:
+        acc = history.history['sparse_categorical_accuracy']
+    elif 'categorical_accuracy' in keys:
+        acc = history.history['categorical_accuracy']
     else:
         raise ValueError("Training accuracy not found")
 
@@ -41,14 +45,26 @@ def plot_metrics(history,
 
     if 'val_acc' in keys:
         val_acc = history.history['val_acc']
+        plt.plot(epochs, val_acc, color='blue', 
+            marker='o', linestyle='dashed', label='Validation accuracy'
+        )
     elif 'val_accuracy' in keys:
         val_acc = history.history['val_accuracy']
+        plt.plot(epochs, val_acc, color='blue', 
+            marker='o', linestyle='dashed', label='Validation accuracy'
+        )
+    elif 'val_sparse_categorical_accuracy' in keys:
+        val_acc = history.history['val_sparse_categorical_accuracy']
+        plt.plot(epochs, val_acc, color='blue', 
+            marker='o', linestyle='dashed', label='Validation accuracy'
+        )
+    elif 'val_categorical_accuracy' in keys:
+        val_acc = history.history['val_categorical_accuracy']
+        plt.plot(epochs, val_acc, color='blue', 
+            marker='o', linestyle='dashed', label='Validation accuracy'
+        )
     else:
-        raise ValueError("Validation accuracy not found")
-
-    plt.plot(epochs, val_acc, color='blue', 
-        marker='o', linestyle='dashed', label='Validation accuracy'
-    )
+        warn("Validation accuracy not found... skpping")
 
     if 'test_acc' in keys:
         test_acc = history.history['test_acc']
@@ -81,14 +97,16 @@ def plot_metrics(history,
 
     if 'val_loss' in keys:
         val_loss = history.history['val_loss']
+        plt.plot(epochs, val_loss, color='blue', 
+            marker='o', linestyle='dashed', label='Validation Loss'
+        )    
     elif 'validation_loss' in keys:
         val_loss = history.history['validation_loss']
+        plt.plot(epochs, val_loss, color='blue', 
+            marker='o', linestyle='dashed', label='Validation Loss'
+        )
     else:
-        raise ValueError("Validation loss not found")
-
-    plt.plot(epochs, val_loss, color='blue', 
-        marker='o', linestyle='dashed', label='Validation Loss'
-    )
+        warn("Validation loss not found... skipping")
 
     if 'test_loss' in keys:
         test_loss = history.history['test_loss']
