@@ -292,7 +292,7 @@ def evaluate_model(model, test_ds, labels, num_classes, model_str='model'):
     is_onehot = lambda y: y.shape[-1] == num_classes
     def return_both_onehot_and_int(x):
         if is_onehot(x):
-            return x, tf.argmax(x, axis=-1, dtype=x.dtype)
+            return x, tf.argmax(x, axis=-1)
         return tf.one_hot(x, depth=num_classes, dtype=x.dtype), x
 
     y_true_onehot, y_true_int = return_both_onehot_and_int(y_true)
