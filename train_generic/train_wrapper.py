@@ -16,8 +16,14 @@ def train_lite(model, num_classes, train_ds, test_ds, val_ds=None,
                epochs=25, steps_per_epoch=None, saved_model_path='saved_model',
                checkpoint_path='model_ckpt/cp.ckpt', monitor='val_loss',
                hist_path='history/model_history', labels=None,
+               model_png_path='model.png', results_dir='train_results',
                stopping_patience=5, histogram_freq=5, profile_batch=0,
                lr_factor=0.5, verbose=True, lr_patience=3, min_learning_rate=1e-5):
+
+    owd = os.getcwd()
+    print("Starting in {}".format(owd))
+    print("Moving to {}".format(results_dir))
+    os.chdir(results_dir)
 
     if redirect_stdout:
         logger = logging.getLogger('train')
@@ -36,8 +42,8 @@ def train_lite(model, num_classes, train_ds, test_ds, val_ds=None,
     start = time.time()
 
     if plot_model:
-        tf.keras.utils.plot_model(model, show_shapes=True)
-        print("Model block diagram saved to {}/model.png".format(os.getcwd().upper()))
+        tf.keras.utils.plot_model(model, to_file=model_png_path, show_shapes=True)
+        print("Model block diagram saved to {}/model.png".format(model_png_path.upper()))
     print("Model created")
 
     checkpoint_dir = os.path.dirname(checkpoint_path)
@@ -111,12 +117,16 @@ def train_lite(model, num_classes, train_ds, test_ds, val_ds=None,
     plot_metrics(history)
 
     print("Evaluating model...")
+
     metadata = evaluate_model(
         model, 
         test_ds=test_ds, 
         labels=labels, 
         num_classes=num_classes, 
-        model_str=model_str)
+        model_str=model_str
+    )
+    os.chdir(owd)
+    print("Moving back to {}".format(owd))
     return history, metadata
 
 

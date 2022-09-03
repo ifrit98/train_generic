@@ -35,7 +35,7 @@ where = lambda x, fx, p: maybe_unlist(
 # Get nice and easy from where we just wrote
 get = lambda x, fx, p: np.asarray(x)[where(x, fx, p)]
 
-
+dslen = lambda x: len(list(x.as_numpy_iterator()))
 
 def _dir(path='./'):
     return [x[0] for x in os.walk(path)][1:]
