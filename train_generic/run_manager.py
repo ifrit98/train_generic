@@ -5,9 +5,11 @@ import yaml
 from pprint import pformat
 import matplotlib.pyplot as plt
 
+
 from .train_wrapper import train
+from .utils import import_file, import_flags, inside_docker, timestamp
 from .stream_logger import file_logger
-from ._startup import inside_docker, import_file, import_flags
+
 
 try:
     GLOBAL_FLAGS = import_flags('flags.yaml')
@@ -153,7 +155,7 @@ def do_training_run(run_dir, meta_file='metadata.json'):
     clear_run()
     os.chdir(owd)
 
-
+# TODO: MAKE SURE THIS WORKS ON BOTH WINDOWS AND UNIX PROPERLY! (BROKEN ON WINDOWS)
 def initialize_run(run_dir=None,
                    logger_name='init_log',
                    FLAGS=None):
@@ -165,8 +167,6 @@ def initialize_run(run_dir=None,
         flags: flags object, as a python dictionary from yaml file.
 
     """
-    # if _globals['runs_dir'] is None:
-    #     _globals['runs_dir'] = os.path.abspath('/training/data/runs')
     
     print("Runs_dir:", _globals['runs_dir'])
     if not os.path.exists(_globals['runs_dir']):
@@ -196,6 +196,15 @@ def initialize_run(run_dir=None,
     cmd = "cp ./eval_model_ckpt.sh " + os.path.join(run_dir, 'eval_model_ckpt.sh')
     if os.path.exists('./eval_model_ckpt.sh'):
         os.system(cmd)
+
+    cmd = "cp -r ./models/ " + os.path.join(run_dir, 'models' + os.sep)
+    os.system(cmd)
+    print(cmd)
+
+    cmd = "cp -r ./*.py " + run_dir + os.sep
+    os.system(cmd)
+    print(cmd)
+    print("passed last `cp` command")
 
     _globals['run_dir']['path'] = run_dir
     _globals['run_dir']['FLAGS'] = FLAGS

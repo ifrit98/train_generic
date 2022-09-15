@@ -4,13 +4,160 @@ import inspect
 import numpy as np 
 import tensorflow as tf
 import matplotlib.pyplot as plt
+from tensorflow.keras import backend as K
 from tensorflow.python.framework.ops import Tensor, EagerTensor
 from tensorflow.python.framework.config import list_physical_devices
 import seaborn as sns
+import yaml
+import pickle
+from types import GeneratorType
+import time 
 
 
-from ._startup import psub1, plotx, timestamp
+timestamp = lambda: time.strftime("%m_%d_%y_%H-%M-%S", time.strptime(time.asctime()))
 
+
+def binary_weighted_crossentropy(weight, use_tf=True):
+    """ Compute weighted binary crossentropy using tensorflow routines from logits
+    params:
+        weight: int
+            weight > 1 decreases false negative count and increases recall
+            weight < 1 decreases false positive count and increases precision
+    """
+    def binary_weighted_crossentropy_internal(labels, logits):
+        if 'int' in labels.dtype.name:
+            labels = tf.cast(labels, 'float32')
+        if use_tf:
+            return tf.nn.weighted_cross_entropy_with_logits(labels, logits, weight)
+        x, z, q = logits, labels, weight
+        return (1 - z) * x + (1 + (q - 1) * z) * tf.math.log(1 + tf.exp(-x))
+    return binary_weighted_crossentropy_internal
+
+def weighted_binary_crossentropy(w1, w2):
+    """
+    Computes weighted binary crossentropy
+    params:
+        w1, w2: the weights for the two classes, (0, 1) respectively
+    Usage:
+     model.compile(
+         loss=weighted_binary_crossentropy(0.7, 0.3), optimizer="adam", metrics=["accuracy"])
+    """
+    if tf.round(w1 + w2) != 1.0:
+        raise ValueError("`recall_weight` and `spec_weight` must sum to 1.")
+    @tf.autograph.experimental.do_not_convert
+    def loss(y_true, y_pred):
+        # avoid absolute 0
+        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
+        ones   = tf.ones_like(y_true)
+        mask   = tf.equal(y_true, ones)
+        res, _ = tf.map_fn(lambda x: (tf.multiply(-tf.math.log(x[0]), w1) if x[1] is True
+                                      else tf.multiply(-tf.math.log(1 - x[0]), w2), x[1]),
+                           (y_pred, mask), dtype=(tf.float32, tf.bool))
+        return res
+    return loss
+
+
+def restore_model(model_path, init_compile=True, custom_objects=None, compile_kwargs=None):
+    """ Load and compile saved tensorflow model objects from disk. It is recommended
+        you use method A if possible, as it does not required named layers, metrics, or
+        optimizers in order to associate function handles and is inherently less brittle.
+
+    params: 
+        model_path: str path to directory that contains .pb model file
+        init_compile: bool whether to attempt to compile the model 'as-is' on load
+        custom_objects: dict of object_name, object_handle pairs required to load custom model
+        compile_kwargs: dict of kwargs to call compile() on the resultant (custom) model object.
+    returns:
+        tensorflow model object
+
+    path = './models/aleatoric'
+
+    # Method A - using `compile_kwargs` dict to compile after initial load
+    args = {
+        'optimizer': 'adam',
+        'loss': {'logits_variance': bayesian_categorical_crossentropy(100, 1),
+        'sigmoid_output': binary_weighted_crossentropy(1.5)}, 
+        'metrics': {},
+        'loss_weights': {'logits_variance': 0.2, 'sigmoid_output': 1.0}} 
+    model = restore_model(path, compile_kwargs=args)
+
+    # Method B - using `custom_objects` dict to compile on initial load
+    num_monte_carlo = 100
+    loss_weight = 1.5
+    custom_objs = {
+        'bayesian_categorical_crossentropy_internal': bayesian_categorical_crossentropy(num_monte_carlo, 1),
+        'binary_weighted_crossentropy_internal': binary_weighted_crossentropy(loss_weight)}
+    model = restore_model(model_path, init_compile=True, custom_objects=custom_objs)
+
+    print(model.summary())
+    """
+    if not os.path.exists(model_path):
+        raise ValueError("No model found at {}".format(model_path))
+    try:
+        model = tf.keras.models.load_model(
+            model_path, compile=init_compile, custom_objects=custom_objects)
+        if compile_kwargs is not None and init_compile is True:
+            raise ValueError("Must set `init_compile=False` if passing `compile_args`")
+        elif not init_compile:
+            model.compile(**compile_kwargs)
+    except :
+        raise ImportError(
+            "Error loading model {}".format(model_path))
+    print(model.summary)
+    return model
+
+
+
+def inside_docker():
+    path = '/proc/self/cgroup'
+    x = (
+        os.path.exists('/.dockerenv') or \
+        os.path.isfile(path) and \
+        any('docker' in line for line in open(path))
+    )
+    return any(list(x)) if isinstance(x, GeneratorType) else x
+
+def import_file(filepath, ext='.py'):
+    import importlib.util
+    if not os.path.exists(filepath):
+        raise ValueError("source `filepath` not found.")
+    path = os.path.abspath(filepath)
+    spec = importlib.util.spec_from_file_location(
+        os.path.basename(
+            path[:-len(ext)]
+        ), 
+        path
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+def import_flags(path=None):
+    if path is not None:
+        try:
+            with open(path, 'r') as f:
+                return yaml.load(f, Loader=yaml.SafeLoader)
+        except:
+            pass
+    possible_dirs = ['./', './config', './data', './fr_train']
+    for directory in possible_dirs:
+        path = os.path.join(directory, 'flags.yaml')    
+        FLAGS_FILE = os.path.abspath(path)
+        if os.path.exists(FLAGS_FILE):
+            with open(FLAGS_FILE, 'r') as f:
+                return yaml.load(f, Loader=yaml.SafeLoader)
+    raise ValueError("No flags file found.")
+
+def import_history(path='history/model_history'):
+    with open(path, 'rb') as f:
+      history = pickle.load(f)
+    return history
+
+def read_pickle(path):
+    f = open(path, 'rb')
+    x = pickle.load(f)
+    f.close()
+    return x
 
 def get_src(f, return_lines=True):
     if return_lines:
@@ -681,61 +828,6 @@ def plot_metrics(history,
 
 
 
-def plot_metrics_og(history,
-                 show=False,
-                 save_png=True,
-                 outpath='training_curves_' + timestamp()):
-    plt.clf()
-    plt.cla()
-
-    keys = list(history.history)
-    epochs = range(
-        min(
-            list(
-                map(
-                    lambda x: len(x[1]), history.history.items()
-                )
-            )
-        )
-    )
-
-    plt.figure(figsize=(8,8))
-    if 'acc' in keys:
-        acc  = history.history['acc']
-        plt.subplot(211)
-        plt.plot(epochs, acc, 'bo', label='Training accuracy')
-    elif 'accuracy' in keys:
-        acc  = history.history['accuracy']
-        plt.subplot(211)
-        plt.plot(epochs, acc, 'bo', label='Training accuracy')
-    if 'val_acc' in keys:
-        val_acc = history.history['val_acc']
-        plt.plot(epochs, val_acc, 'b', label='Validation accuracy')
-    elif 'val_accuracy' in keys:
-        val_acc = history.history['val_accuracy']
-        plt.plot(epochs, val_acc, 'b', label='Validation accuracy')
-    plt.title('Training and validation accuracy')
-    plt.legend()
-
-    if 'loss' in keys:
-        loss = history.history['loss']
-        plt.subplot(212)
-        plt.plot(epochs, loss, 'bo', label='Training Loss')
-    if 'val_loss' in keys:
-        val_loss = history.history['val_loss']
-        plt.plot(epochs, val_loss, 'b', label='Validation Loss')
-    elif 'validation_loss' in keys:
-        val_loss = history.history['val_loss']
-        plt.plot(epochs, val_loss, 'b', label='Validation Loss')
-    plt.title('Training and validation loss')
-    plt.legend()
-
-    if save_png:
-        plt.savefig(outpath)
-    if show:
-        plt.show()
-
-
 def plot_mfcc(mfcc_db, vmin=None, outpath=None, title='MFCC Plot'):
     fig = plt.figure(figsize=(8, 8))
     ax = plt.subplot()
@@ -757,58 +849,6 @@ def plot_mfcc(mfcc_db, vmin=None, outpath=None, title='MFCC Plot'):
     plt.close()
 
 
-def plot_params(batch, logs=None):
-    # Plot power spectral density
-    batch = {k: v[0,:] if len(v.shape) > 1 else v for k,v in batch.items()}
-    psds = batch.get('psd', None)
-    if psds is not None:
-        psub1( 
-            psds,
-            title="Power Spectral Densities",
-            xlab='Frequency',
-            ylab='Power (dB)')
-
-    # Plot signal
-    plotx(tf.squeeze(tf.abs(batch['signal'][1:])), title="Signal")
-
-    # Plot grams
-    keys = ['arPwrNrmDb', 'arPhase', 'spPwrNrmDb', 'group_delay', 'arCep', 'cepGram', 'spCep']
-    if not any(list(map(lambda x: batch.get(x, None) == None, keys))):
-        spgrams = tf.stack(
-            [batch['arPwrNrmDb'], batch['spPwrNrmDb'], 
-                batch['arPhase'], batch['group_delay'], tf.abs(batch['arCep'])])
-        plot_specs(
-            spgrams,
-            title="Spectrogram Plots \
-                (arPwrNrmDb, spPwrNrmDb, arPhase, GroupDelay, arCep)",
-            xlab='Time',
-            ylab='Frequency Bins'
-            )
-
-        cpgrams = tf.stack([batch['cepGram'], tf.abs(batch['spCep'])])
-        plot_specs(
-            cpgrams,
-            title="Cepstrogram Plots \
-                (srCep, cepGram)",
-            xlab='Time',
-            ylab='Frequency Bins'
-            )
-
-    # plot mfccs
-    if batch.get('mfcc_db', None) is not None:
-        plot_mfcc(batch['mfcc_db'])
-
-    # Plot noise variance history
-    if batch.get('arNoiseVarHist', None) is not None:
-        plotx(batch['arNoiseVarHist'][1:], title="AR Model Noise Variance History")
-
-    # Plot imfs
-    if batch.get('imf', None) is not None:
-        psub1( 
-            batch['imf'],
-            title="IMFs",
-            figsize=[11,8]) 
-    
 def noNaNlossfn(fn):
     def noNaN(x, y):
         return fn(x, y+1e-8)

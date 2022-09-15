@@ -83,17 +83,5 @@ def demo():
         }
     }
 
-
-    from train_generic import train
-    results = train(
-        model_fn=test_model, 
-        model_cfg=FLAGS.get('model_cfg', {}),
-        data_fn=mnist,
-        data_cfg=FLAGS.get('data_cfg', {}),
-        **FLAGS.get('train_cfg', {})
-    )
-    print(results)
-
-
     from train_generic import training_run
     training_run(FLAGS=FLAGS)
