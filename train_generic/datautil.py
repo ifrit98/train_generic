@@ -83,22 +83,25 @@ def dataset_compact(ds, compact_x_key='signal', compact_y_key='target', num_para
         compact, 
         num_parallel_calls=as_tensor(num_parallel_calls, 'int64'))
 
-# TODO: Make sure whis works both nested and not
-# TODO: fix load_AIS data to allow batching?? (`data`: tf.string)?
-def dataset_set_shapes(ds):
-    for nb in ds: break
-    shapes = {
-        k: v.shape.as_list() if type(v) is not dict \
-                             else {
-                                 _k: _v.shape.as_list() for _k,_v in v.items()
-                            } for k,v in nb.items()}
-    del nb
-    def set_shapes(x):
-        [v.set_shape(shapes[k]) if type(shapes[k]) is not dict \
-                                else {ki: vi.set_shape(shapes[k][ki]) for ki,vi in v.items()}\
-                                for k,v in x.items()]
+def dataset_set_shapes(dataset):
+    for _ in dataset: break
+    shps = list(
+        map(
+            lambda x: x.shape.as_list(), _.values() if isinstance(_, dict) else _
+        )
+    )
+    if isinstance(_, dict): shps = dict(zip(list(_), shps))
+
+    def set_shape_dict(x):
+        [v.set_shape(shps[k]) for k,v in x.items() if len(shps[k]) > 1]
         return x
-    return ds.map(set_shapes)
+
+    def set_shape_tuple(*x):
+        [v.set_shape(s) for v,s in zip(x, shps)]
+        return x
+
+    set_shape_map = set_shape_dict if isinstance(_, dict) else set_shape_tuple
+    return dataset.map(set_shape_map)
 
 def dataset_onehot(ds, target_key='target'):
     def onehot(x):
